@@ -1,0 +1,103 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <vector>
+#include <algorithm>
+#include <thread>
+#include <iostream>
+
+using namespace std;
+
+#include "timing.h"
+
+//hilo
+
+void hilo(int init, int fact, int h2, vector<double> & last, vector<double> & cur, vector<double> & f){
+    int mmin = min((int)last.size()-1, init + fact);
+    for(int i = init; i < mmin; i++){
+        if(i > 0){
+            cur[i] = (last[i-1] + last[i+1] + h2*f[i])/2;
+        }
+    }
+}
+
+void jacobi(int cnt_threads, int nsweeps, int n, vector<double> & u, vector<double> & f){
+
+    int i, sweep;
+    double h  = 1.0 / n;
+    double h2 = h*h;
+    vector<double> utmp(n+1);
+    vector<thread> threads(cnt_threads); //vector hilos
+
+    /* Fill boundary conditions into utmp */
+    utmp[0] = u[0];
+    utmp[n] = u[n];
+
+    int fact = n/cnt_threads + n%cnt_threads;
+
+    for (sweep = 0; sweep < nsweeps; sweep += 2) {
+        
+        /* Old data in u; new data in utmp */
+        for (i = 0; i < cnt_threads; ++i){
+            threads[i] = thread(hilo,i*fact,fact,h2,ref(utmp),ref(u),ref(f)); //usamos hilos para mejorar rendimiento
+        }
+        for(auto & i : threads){
+            i.join();
+        }
+        
+        /* Old data in utmp; new data in u */
+        for (i = 1; i < n; ++i)
+            u[i] = (utmp[i-1] + utmp[i+1] + h2*f[i])/2;
+    }
+
+}
+
+
+void write_solution(int n, vector<double> & u, const char* fname)
+{
+    int i;
+    double h = 1.0 / n;
+    FILE* fp = fopen(fname, "w+");
+    for (i = 0; i <= n; ++i)
+        fprintf(fp, "%g %g\n", i*h, u[i]);
+    fclose(fp);
+}
+
+
+int main(int argc, char** argv)
+{
+    int i;
+    int n, nsteps, cant;
+    vector<double> u, f;
+    double h;
+    timing_t tstart, tend;
+    char* fname;
+
+    /* Process arguments */
+    n      = (argc > 1) ? atoi(argv[1]) : 100;
+    nsteps = (argc > 2) ? atoi(argv[2]) : 100;
+    fname  = (argc > 3) ? argv[3] : NULL;
+    cant   = (argc > 4) ? atoi(argv[4]) : 3;
+    h      = 1.0/n;
+
+    /* Allocate and initialize arrays */
+    u.assign(n+1,0);
+    f.assign(n+1,0);
+    for (i = 0; i <= n; ++i)
+        f[i] = i * h;
+    /* Run the solver */
+    get_time(&tstart);
+    jacobi(cant, nsteps, n, u, f);
+    get_time(&tend);
+
+    /* Run the solver */    
+    printf("%d,"
+           "%g\n", 
+           n, timespec_diff(tstart, tend));
+
+    /* Write the results */
+    if (fname)
+        write_solution(n, u, fname);
+
+    return 0;
+}
